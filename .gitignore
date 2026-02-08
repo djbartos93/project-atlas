@@ -1,0 +1,93 @@
+# Project Atlas - Git Ignore File
+
+# Terraform
+**/*.tfstate
+**/*.tfstate.*
+**/.terraform/
+**/.terraform.lock.hcl
+**/crash.log
+**/crash.*.log
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
+*.tfvars
+*.tfvars.json
+
+# Ansible
+*.retry
+ansible/inventory/hosts.ini
+ansible/group_vars/vault.yml
+ansible/host_vars/*/vault.yml
+
+# Secrets and credentials
+**/.env
+**/.env.*
+**/secrets.yml
+**/secrets.yaml
+**/vault-pass.txt
+**/*-key.json
+**/*-key.pem
+**/*.key
+**/*.pem
+**/*.crt
+**/*.p12
+**/*.pfx
+
+# Network device configs with secrets
+network-configs/**/running-config-*.txt
+network-configs/**/startup-config-*.txt
+**/device-passwords.txt
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Kubernetes
+**/kubeconfig
+**/kubeconfig.*
+kubernetes/clusters/*/secrets/
+
+# EVE-NG
+*.qcow2
+*.vmdk
+*.iso
+network-images/
+
+# Logs
+*.log
+logs/
+**/*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+#claude documentation
+COWORK_START.md
+GETTING_STARTED.md
+IMPLEMENTATION_ROADMAP.md
+NEXT_STEPS.md
+PROJECT_CONTEXT.md
+PROJECT_DATA.yaml
+docs/architecture/RESOURCE_ALLOCATION.md
+interview_points.md
+docs/portfolio/
+README-CLAUDE.md
+docs/lab-notes.md
+docs/PROJECT_GOALS.md
+docs/architecture/DESIGN_DECISION.md
+docs/architecture/ENHANCED_ISP_DESIGN.md
+docs/architecture/IP_ADDRESSING_PHILOSOPHY.md
+docs/architecture/K8S_WORKLOAD_IDEAS.md
