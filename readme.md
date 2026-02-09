@@ -10,9 +10,11 @@
 
 This project leverages AI as a collaborative tool, but learning through hands-on implementation remains the primary goal. 
 
-While I use AI to help refine documentation or "clean up" existing configurations for readability, all logic and core configuration files are authored manually. 
+While I use AI to help refine documentation or "clean up" existing configurations for readability, all logic and core configuration files are authored manually. Any documents that have not yet been reviewed by myself will state that they have not been reviewed.  Most working or in progressdocumentatoin has been created with AI assistance, but has been reviewed by myself and includes the real values used in the lab (IP addresses, hostnames, etc.). 
 
 Every line of code and piece of information has been personally reviewed and validated to ensure accuracy. This repository is about mastering real-world technologies, not letting a model do the work for me. 
+
+Any documents that have not been reviewed, and will not be reviewed, will state that they have been created with AI and will not be edited by a human. 
 
 ## 📋 Project Overview
 
