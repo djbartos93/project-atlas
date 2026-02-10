@@ -90,3 +90,4 @@ docs/PROJECT_GOALS.md
 docs/architecture/DESIGN_DECISION.md
 docs/architecture/ENHANCED_ISP_DESIGN.md
 docs/architecture/K8S_WORKLOAD_IDEAS.md
+docs/build-guides/12-K3S-DEPLOYMENT-PROXMOX.md

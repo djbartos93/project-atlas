@@ -4,7 +4,7 @@
 
 ## Overview
 
-This guide walks through deploying a **production-grade K3s Kubernetes cluster** on your Proxmox environment. K3s is a lightweight, certified Kubernetes distribution perfect for homelabs - it uses 50% less resources than full K8s while maintaining full compatibility.
+This guide walks through deploying a **production-grade K3s Kubernetes cluster** on a Proxmox environment. K3s is a lightweight, certified Kubernetes distribution perfect for homelabs - it uses 50% less resources than full K8s while maintaining full compatibility.
 
 ### Why K3s Instead of Full Kubernetes?
 
