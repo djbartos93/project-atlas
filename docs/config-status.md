@@ -7,7 +7,6 @@ Current Status: ISIS peering within each Tier1 ISP is complete. BGP peering inte
 BGP peering between Level3 and Cogent is complete.
 
 ## Overall router configuration status:
-
 | Device         | Step            | Complete? |
 | -------------- | --------------- | --------- |
 | L3-CR-1        | Internal IP     | TRUE      |
@@ -62,10 +61,10 @@ BGP peering between Level3 and Cogent is complete.
 | CG-CR-2        | hostname        | TRUE      |
 | CG-BR-1        | hostname        | TRUE      |
 | CG-BR-2        | hostname        | TRUE      |
-| MADIX-1        | hostname        | FALSE     |
-| MADIX-1        | vlan            | FALSE     |
-| MADIX-1        | interfaces      | FALSE     |
-| MADIX-1        | BGP             | FALSE     |
+| MADIX-1        | hostname        | TRUE      |
+| MADIX-1        | vlan            | TRUE      |
+| MADIX-1        | interfaces      | TRUE      |
+| MADIX-1        | BGP             | TRUE      |
 | MADIX-1        | Route filtering | FALSE     |
 | ATLAS-MSN-CR-1 | Internal IP     | FALSE     |
 | ATLAS-MSN-CR-2 | Internal IP     | FALSE     |
