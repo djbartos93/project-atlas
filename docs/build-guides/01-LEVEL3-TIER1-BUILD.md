@@ -326,19 +326,53 @@ show route advertising-protocol bgp 10.255.1.11
 ## Phase 5: External BGP (eBGP) - Border Routers Only
 
 ### Goal
-Configure external peering with IXP route servers, Cogent, and transit customers.
+Configure external peering with IXP route servers, Cogent (settlement-free peering), and transit customers.
+
+### External Peering Architecture
+
+**Both border routers peer externally for redundancy**:
+
+| L3 Router | External Peer | Peer Type | Interface | IP Address | Peer IP |
+|-----------|---------------|-----------|-----------|------------|---------|
+| L3-Border-1 | IXP-RS1 | Public Peering | ge-0/0/3 | 198.51.100.56/24 | 198.51.100.251 |
+| L3-Border-1 | Cogent-Border-1 | Private Peering | ge-0/0/4 | 203.0.113.17/30 | 203.0.113.18 |
+| L3-Border-2 | IXP-RS1 | Public Peering | ge-0/0/3 | 198.51.100.61/24 | 198.51.100.251 |
+| L3-Border-2 | Cogent-Border-2 | Private Peering | ge-0/0/4 | 203.0.113.21/30 | 203.0.113.22 |
+
+**Why Dual Border Peering?**:
+- ✅ Redundancy: If Border-1 fails, Border-2 maintains all external peering
+- ✅ Load balancing: Traffic distributed across both paths
+- ✅ Traffic engineering: Can prefer one border over another using MED/communities
 
 ### Step 1: Configure External Interfaces
 
-On border routers, configure links to external networks:
+**On L3-Border-1**:
 
 ```junos
-# L3-Border-1 to IXP
-set interfaces ge-0/0/3 unit 0 description "to-IXP-RS1"
+# Interface to IXP (shared subnet)
+set interfaces ge-0/0/3 unit 0 description "to-IXP"
 set interfaces ge-0/0/3 unit 0 family inet address 198.51.100.56/24
+
+# Interface to Cogent-Border-1 (point-to-point)
+set interfaces ge-0/0/4 unit 0 description "to-Cogent-Border1"
+set interfaces ge-0/0/4 unit 0 family inet address 203.0.113.17/30
+```
+
+**On L3-Border-2**:
+
+```junos
+# Interface to IXP (shared subnet, different IP)
+set interfaces ge-0/0/3 unit 0 description "to-IXP"
+set interfaces ge-0/0/3 unit 0 family inet address 198.51.100.61/24
+
+# Interface to Cogent-Border-2 (point-to-point)
+set interfaces ge-0/0/4 unit 0 description "to-Cogent-Border2"
+set interfaces ge-0/0/4 unit 0 family inet address 203.0.113.21/30
 ```
 
 ### Step 2: eBGP Session to IXP
+
+**On both border routers** (same config):
 
 ```junos
 set protocols bgp group IXP-PEERS type external
@@ -352,12 +386,36 @@ set protocols bgp group IXP-PEERS neighbor 198.51.100.251 description "IXP-RS1"
 - `peer-as`: Remote AS (IXP route server AS)
 - No `local-address` needed (uses physical interface IP)
 
-### Step 3: BGP Route Policies
+### Step 3: eBGP to Cogent (Settlement-Free Peering)
+
+**On L3-Border-1**:
+
+```junos
+set protocols bgp group TIER1-PEERS type external
+set protocols bgp group TIER1-PEERS peer-as 174
+set protocols bgp group TIER1-PEERS family inet unicast
+set protocols bgp group TIER1-PEERS neighbor 203.0.113.18 description "Cogent-Border1"
+```
+
+**On L3-Border-2**:
+
+```junos
+set protocols bgp group TIER1-PEERS type external
+set protocols bgp group TIER1-PEERS peer-as 174
+set protocols bgp group TIER1-PEERS family inet unicast
+set protocols bgp group TIER1-PEERS neighbor 203.0.113.22 description "Cogent-Border2"
+```
+
+**Peering Type**: Settlement-free (Tier-1 to Tier-1, no payment either direction)
+
+### Step 4: BGP Route Policies
 
 **Import Policy** (what we accept):
 
 ```junos
+# Basic acceptance for now (add filtering in production)
 set policy-options policy-statement FROM-IXP-PEERS term DEFAULT-ACCEPT then accept
+set policy-options policy-statement FROM-TIER1-PEER term DEFAULT-ACCEPT then accept
 
 # In production, you'd add filtering here:
 # - Prefix length limits (no /32s, no > /24)
@@ -368,48 +426,80 @@ set policy-options policy-statement FROM-IXP-PEERS term DEFAULT-ACCEPT then acce
 **Export Policy** (what we announce):
 
 ```junos
-set policy-options policy-statement TO-IXP-PEERS term ANNOUNCE-OWN then accept
+# Announce own routes and customer routes (NOT peer routes)
+set policy-options policy-statement TO-PEERS term ANNOUNCE-CUSTOMERS from protocol bgp
+set policy-options policy-statement TO-PEERS term ANNOUNCE-CUSTOMERS from community LEARNED-FROM-CUSTOMER
+set policy-options policy-statement TO-PEERS term ANNOUNCE-CUSTOMERS then accept
 
-# Apply policies
+set policy-options policy-statement TO-PEERS term ANNOUNCE-OWN from protocol static
+set policy-options policy-statement TO-PEERS term ANNOUNCE-OWN then accept
+
+set policy-options policy-statement TO-PEERS term DENY-ALL then reject
+
+# Apply policies to both IXP and Tier-1 peering
 set protocols bgp group IXP-PEERS import FROM-IXP-PEERS
-set protocols bgp group IXP-PEERS export TO-IXP-PEERS
+set protocols bgp group IXP-PEERS export TO-PEERS
+
+set protocols bgp group TIER1-PEERS import FROM-TIER1-PEER
+set protocols bgp group TIER1-PEERS export TO-PEERS
 ```
 
-**Why Policies Matter**: Without explicit policies, iBGP routes won't be advertised to eBGP peers by default in Junos.
+**Why Export Policy Matters**:
+- ✅ Announce own routes (originated by Level 3)
+- ✅ Announce customer routes (we get paid to transit)
+- ❌ Do NOT announce peer routes (won't provide free transit for Cogent's customers)
 
-### Step 4: BGP Communities for Traffic Engineering
+### Step 5: BGP Communities for Traffic Engineering
 
 Define communities for marking routes:
 
 ```junos
 set policy-options community LEARNED-FROM-PEER members 3356:200
 set policy-options community LEARNED-FROM-CUSTOMER members 3356:100
+set policy-options community LEARNED-FROM-TIER1-PEER members 3356:300
 
 # Tag routes on import
-set policy-options policy-statement FROM-IXP-PEERS term PEERS then community add LEARNED-FROM-PEER
+set policy-options policy-statement FROM-IXP-PEERS term TAG then community add LEARNED-FROM-PEER
+set policy-options policy-statement FROM-IXP-PEERS term TAG then accept
+
+set policy-options policy-statement FROM-TIER1-PEER term TAG then community add LEARNED-FROM-TIER1-PEER
+set policy-options policy-statement FROM-TIER1-PEER term TAG then accept
 ```
 
-**Use Case**: These communities help with route selection and policy application downstream.
+**Use Case**: These communities help with route selection and policy application throughout the network.
 
 ### Verification
 
-Check eBGP sessions:
+**Check all eBGP sessions**:
 ```junos
 show bgp summary
-show bgp neighbor 198.51.100.251
 ```
 
-Check received routes:
+**Expected Output**:
+```
+Peer                AS      InPkt     OutPkt    OutQ   Flaps Last Up/Dwn State|#Active
+198.51.100.251   64999       1234       1235       0       0       1:23:45 Established
+203.0.113.18       174       5678       5679       0       0       2:15:30 Established
+```
+
+**Check specific peers**:
+```junos
+show bgp neighbor 198.51.100.251
+show bgp neighbor 203.0.113.18
+```
+
+**Check received/advertised routes**:
 ```junos
 show route receive-protocol bgp 198.51.100.251
-show route advertising-protocol bgp 198.51.100.251
+show route advertising-protocol bgp 203.0.113.18
 ```
 
-Test external reachability (once routes are received):
+**Verify Tier-1 peering path** (from Border-1 to Border-2 via Cogent):
 ```junos
-ping 1.1.1.1 source 10.255.1.11
-traceroute 8.8.8.8
+traceroute 10.255.1.12 source 10.255.1.11
 ```
+
+**Expected**: Should see path through Cogent routers (203.0.113.18 → Cogent network → 203.0.113.22)
 
 ---
 
