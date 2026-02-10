@@ -10,6 +10,25 @@ This guide explains how Tier-1 ISPs interconnect and how the Internet Exchange P
 
 All IP addresses and interface names are generic in this guide. You should replace them with your own IP addresses and interface names. See IP_ADDRESSING_PHILOSOPHY.md for more information.
 
+## Learning Approach: Two-Phase Deployment
+
+**Phase 1 (This Guide): Open Peering - Pass-All Policies**
+- Configure BGP sessions with simple "pass-all" route policies
+- **Cisco requirement**: IOS-XR mandates route policies on eBGP (won't exchange routes without them)
+- See all routes flow freely between networks (no filtering, just acceptance)
+- Understand the "before" state (what happens without restrictive policies)
+- Easier to troubleshoot initial connectivity
+
+**Phase 2 (Future Guide): Apply Restrictive Route Policies**
+- Replace pass-all policies with selective export/import policies
+- Compare before/after to visualize what filtering does
+- Understand why Tier-1s don't announce peer routes to other peers
+- See how policies prevent becoming unwanted transit
+
+**Why this order?**: In a learning environment, seeing unrestricted routing first helps you understand what the policies are actually filtering. You'll be able to say "I see 10,000 routes from Cogent, but after I apply the filtering policy, I only see 500 customer routes" - much more educational than just following a config template.
+
+**Note**: Junos doesn't require explicit policies (will accept/announce by default), but we'll add them anyway for consistency.
+
 ---
 
 ## Tier-1 Settlement-Free Peering
@@ -82,6 +101,12 @@ set protocols bgp group IXP-PEERS neighbor 198.51.100.251 description "IXP-RS1"
 
 **On Cogent-Border-1** (IOS-XR):
 ```cisco
+# Phase 1: Simple pass-all route policies (required by IOS-XR)
+route-policy PASS-ALL
+ pass
+end-policy
+!
+
 # Direct peering to Level3-Border-1
 interface GigabitEthernet0/0/0/4
  description to-Level3-Border1
@@ -93,8 +118,10 @@ router bgp 174
   remote-as 3356
   description Level3-Border1
   address-family ipv4 unicast
-   route-policy FROM-TIER1-PEER in
-   route-policy TO-TIER1-PEER out
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
+   # NOTE: Using simple pass-all policy for Phase 1 learning
+   # Phase 2 will replace with selective filtering policies
   !
  !
 !
@@ -108,12 +135,22 @@ router bgp 174
  neighbor 198.51.100.251
   remote-as 64999
   description IXP-RS1
+  address-family ipv4 unicast
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
+  !
  !
 !
 ```
 
 **On Cogent-Border-2** (IOS-XR):
 ```cisco
+# Phase 1: Simple pass-all route policies (required by IOS-XR)
+route-policy PASS-ALL
+ pass
+end-policy
+!
+
 # Direct peering to Level3-Border-2
 interface GigabitEthernet0/0/0/4
  description to-Level3-Border2
@@ -125,8 +162,9 @@ router bgp 174
   remote-as 3356
   description Level3-Border2
   address-family ipv4 unicast
-   route-policy FROM-TIER1-PEER in
-   route-policy TO-TIER1-PEER out
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
+   # NOTE: Using simple pass-all policy for Phase 1 learning
   !
  !
 !
@@ -139,7 +177,11 @@ interface GigabitEthernet0/0/0/3
 router bgp 174
  neighbor 198.51.100.251
   remote-as 64999
-  description IXP-RS2
+  description IXP-RS1
+  address-family ipv4 unicast
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
+  !
  !
 !
 ```
@@ -147,6 +189,35 @@ router bgp 174
 **Peering Summary**:
 - **Private peering**: Primary high-capacity path (dedicated /30 links)
 - **IXP peering**: Backup path + connectivity to other IXP participants
+
+### Critical Note: Cisco IOS-XR Route Policy Requirement
+
+**IOS-XR requires route policies on ALL eBGP sessions**. Without both inbound and outbound policies configured, the BGP session will establish but exchange **zero routes**.
+
+**Error you'll see if policies are missing**:
+```
+Some configured eBGP neighbors do not have both inbound and outbound
+policies configured for IPv4 Unicast address family. These neighbors
+will default to sending and/or receiving no routes and are marked
+with '!' in the output.
+```
+
+**Solution for Phase 1** (open peering):
+```cisco
+route-policy PASS-ALL
+ pass
+end-policy
+```
+
+**Apply to all eBGP neighbors**:
+```cisco
+address-family ipv4 unicast
+ route-policy PASS-ALL in
+ route-policy PASS-ALL out
+!
+```
+
+**This is different from Junos**, which will accept/announce routes by default without explicit policies.
 
 ---
 
@@ -251,6 +322,12 @@ set protocols bgp group IXP-RS import FROM-IXP
 **On Cogent-Border-1**:
 
 ```cisco
+# Phase 1: Simple pass-all route policy (IOS-XR requirement)
+route-policy PASS-ALL
+ pass
+end-policy
+!
+
 interface GigabitEthernet0/0/0/3
  description to-IXP
  ipv4 address 198.51.100.57 255.255.255.0
@@ -261,8 +338,10 @@ router bgp 174
   remote-as 64999
   description IXP-RS1
   address-family ipv4 unicast
-   route-policy FROM-IXP in
-   route-policy TO-IXP out
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
+   # NOTE: Phase 1 uses pass-all (no filtering)
+   # See "Route Policies" section at bottom for Phase 2 implementation
   !
  !
 
@@ -270,8 +349,8 @@ router bgp 174
   remote-as 64999
   description IXP-RS2
   address-family ipv4 unicast
-   route-policy FROM-IXP in
-   route-policy TO-IXP out
+   route-policy PASS-ALL in
+   route-policy PASS-ALL out
   !
  !
 !
@@ -279,35 +358,88 @@ router bgp 174
 
 ### Route Server Configuration
 
-**Platform**: VyOS or any route server software (BIRD, Quagga)
+**Platform**: Arista vEOS-lab (Layer 2 switch with SVI for route server)
 
-**On IXP-RS1**:
+**On IXP-SW1** (Arista EOS):
 
-```bash
-set interfaces ethernet eth0 address '198.51.100.251/24'
+```
+! VLAN for IXP peering fabric
+vlan 100
+ name IXP-Peering-LAN
+!
 
-set protocols bgp local-as 64999
-set protocols bgp parameters router-id 198.51.100.251
+! Layer 2 ports to participants
+interface Ethernet1
+ description to-Level3-Border1
+ switchport mode access
+ switchport access vlan 100
+ spanning-tree portfast
+!
 
-# Level 3 peer
-set protocols bgp neighbor 198.51.100.56 remote-as 3356
-set protocols bgp neighbor 198.51.100.56 description 'Level3'
+interface Ethernet2
+ description to-Cogent-Border1
+ switchport mode access
+ switchport access vlan 100
+ spanning-tree portfast
+!
 
-# Cogent peer
-set protocols bgp neighbor 198.51.100.57 remote-as 174
-set protocols bgp neighbor 198.51.100.57 description 'Cogent'
+interface Ethernet3
+ description to-Atlas-Edge1
+ switchport mode access
+ switchport access vlan 100
+ spanning-tree portfast
+!
 
-# Atlas Lab ISP peer
-set protocols bgp neighbor 198.51.100.58 remote-as 65000
-set protocols bgp neighbor 198.51.100.58 description 'Atlas-Lab-ISP'
+interface Ethernet4
+ description to-PastyNet-Edge1
+ switchport mode access
+ switchport access vlan 100
+ spanning-tree portfast
+!
 
-# Route server mode (don't modify AS-path)
-set protocols bgp parameters bestpath as-path multipath-relax
-set protocols bgp neighbor 198.51.100.56 address-family ipv4-unicast route-server-client
-set protocols bgp neighbor 198.51.100.57 address-family ipv4-unicast route-server-client
+! SVI for route server functionality
+interface Vlan100
+ description IXP-Route-Server-1
+ ip address 198.51.100.251/24
+!
+
+! Enable routing
+ip routing
+
+! BGP route server configuration
+router bgp 64999
+ router-id 198.51.100.251
+
+ ! Level 3 peer
+ neighbor 198.51.100.56 remote-as 3356
+ neighbor 198.51.100.56 description Level3-Border1
+ neighbor 198.51.100.56 route-server-client
+ neighbor 198.51.100.56 maximum-routes 12000
+
+ ! Cogent peer
+ neighbor 198.51.100.57 remote-as 174
+ neighbor 198.51.100.57 description Cogent-Border1
+ neighbor 198.51.100.57 route-server-client
+ neighbor 198.51.100.57 maximum-routes 12000
+
+ ! Atlas Lab ISP peer
+ neighbor 198.51.100.58 remote-as 65000
+ neighbor 198.51.100.58 description Atlas-Lab-ISP
+ neighbor 198.51.100.58 route-server-client
+ neighbor 198.51.100.58 maximum-routes 12000
+
+ ! PastyNet ISP peer
+ neighbor 198.51.100.59 remote-as 65100
+ neighbor 198.51.100.59 description PastyNet-ISP
+ neighbor 198.51.100.59 route-server-client
+ neighbor 198.51.100.59 maximum-routes 12000
+!
 ```
 
-**Key Setting**: `route-server-client` preserves AS-path through route server.
+**Key Settings**:
+- `route-server-client`: Preserves AS-path through route server (doesn't add AS 64999)
+- `maximum-routes`: Protects against route leaks
+- Layer 2 fabric with SVI: Route server runs on switch interface, not separate VM
 
 ---
 
@@ -385,7 +517,9 @@ Atlas-Customer → Atlas-ISP → IXP → CDN-Network
 
 ---
 
-## Route Policies for Settlement-Free Peering
+## Route Policies for Settlement-Free Peering (Phase 2)
+
+**Note**: This section shows example policies for reference, but they are **NOT applied in Phase 1**. After you get basic peering working and can see all routes flowing, a separate guide will walk through applying these policies and observing the changes.
 
 ### Level 3 Policy to Cogent
 
@@ -506,11 +640,21 @@ show route protocol bgp | match "via 198.51.100"
 
 ## Next Steps
 
-1. **Build IXP route servers**: VyOS VMs configured as route reflectors
-2. **Connect both Tier-1s to IXP**: Configure BGP sessions to route servers
-3. **Establish direct Tier-1 peering**: Level 3 ↔ Cogent private link
-4. **Test traffic paths**: Verify direct peering works before IXP fallback
-5. **Add Atlas Lab ISP**: Your Tier-2 ISP buys transit from both Tier-1s
+**Phase 1 (Basic Peering)**:
+1. Configure IXP switch (Arista) with Layer 2 fabric and route server
+2. Connect both Tier-1s to IXP (BGP sessions to route servers)
+3. Establish direct Tier-1 peering (Level 3 ↔ Cogent private link)
+4. Verify BGP sessions establish (all routes flow freely)
+5. Add Atlas Lab ISP and PastyNet ISP to IXP
+6. Test traffic paths and observe full route tables
+
+**Phase 2 (Route Policy Implementation)** - Future Guide:
+1. Document current route tables (before policies)
+2. Apply export policies (control what you announce)
+3. Apply import policies (control what you accept)
+4. Compare before/after route tables
+5. Verify Tier-1s don't transit for each other
+6. Test traffic engineering with local-preference
 
 ---
 
